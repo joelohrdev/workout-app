@@ -74,6 +74,8 @@ export type Session = {
   endedAt: number | null;
   items: SessionItem[];
   restEndsAt: number | null;
+  /** full length of the current rest, for the progress bar */
+  restTotalMs?: number | null;
   /** exercise ids that hit a new estimated 1RM, set on finish */
   prs?: string[];
 };
@@ -104,6 +106,8 @@ export type Settings = {
   weightUnit: WeightUnit;
   distanceUnit: DistanceUnit;
   restSound: boolean;
+  /** seconds of rest started automatically after each completed set */
+  restSec: number;
 };
 
 export type DB = {

@@ -14,7 +14,7 @@ const EMPTY: DB = {
   customExercises: [],
   activeSession: null,
   timers: {},
-  settings: { weightUnit: "lb", distanceUnit: "mi", restSound: true },
+  settings: { weightUnit: "lb", distanceUnit: "mi", restSound: true, restSec: 30 },
 };
 
 let cache: DB | null = null;
@@ -28,7 +28,11 @@ function load(): DB {
   if (cache) return cache;
   try {
     const raw = localStorage.getItem(KEY);
-    cache = raw ? { ...EMPTY, ...(JSON.parse(raw) as DB) } : fresh();
+    if (raw) {
+      const saved = JSON.parse(raw) as DB;
+      // merge settings so newly added options get their defaults
+      cache = { ...EMPTY, ...saved, settings: { ...EMPTY.settings, ...saved.settings } };
+    } else cache = fresh();
     if (!raw) persist(cache);
   } catch {
     cache = fresh();
@@ -67,7 +71,7 @@ export function update(fn: (db: DB) => DB) {
 }
 
 export function replaceAll(db: DB) {
-  update(() => ({ ...EMPTY, ...db }));
+  update(() => ({ ...EMPTY, ...db, settings: { ...EMPTY.settings, ...db.settings } }));
 }
 
 export function resetAll() {

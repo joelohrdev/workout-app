@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { findExercise, isBodyweight } from "@/lib/exercises";
 import { formatDuration, round } from "@/lib/format";
 import { useDB, useHydrated } from "@/lib/store";
-import { beep, useNow } from "@/lib/timers";
+import { beep, useNow, useWakeLock } from "@/lib/timers";
 import type { DB, Session, SessionStrength, SessionTreadmill } from "@/lib/types";
 import {
   discardActive,
@@ -30,6 +30,8 @@ export function WorkoutView() {
   const now = useNow(!!s, 1000);
   const [picking, setPicking] = useState(false);
   const [summary, setSummary] = useState<Session | null>(null);
+  // keep the screen on for the whole workout so the timers stay visible
+  useWakeLock(!!s && !summary);
 
   if (!hydrated) return <div className="mt-6 h-64 animate-pulse rounded-2xl bg-surface" />;
 
@@ -63,16 +65,24 @@ export function WorkoutView() {
 
   return (
     <>
-      <PageHeader
-        eyebrow={
-          <span className="tabular">
-            {now ? formatDuration((now - s.startedAt) / 1000) : "0:00"} · {done}/{total} done
-          </span>
-        }
-        title={s.name}
-      />
-      <div className="-mt-2 mb-4 h-1.5 overflow-hidden rounded-full bg-surface">
-        <div className="h-full bg-accent transition-[width]" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
+      <PageHeader eyebrow="Workout" title={s.name} />
+
+      {/* total workout time, pinned to the top while scrolling */}
+      <div className="pt-safe sticky top-0 z-20 -mx-4 mb-4 border-b border-line bg-bg/90 px-4 py-2 backdrop-blur-lg">
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.12em] text-muted uppercase">Workout time</p>
+            <p className="font-display tabular text-4xl leading-none font-bold">
+              {now ? formatDuration((now - s.startedAt) / 1000) : "0:00"}
+            </p>
+          </div>
+          <p className="tabular pb-0.5 text-sm text-muted">
+            <span className="font-semibold text-text">{done}</span>/{total} done
+          </p>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface">
+          <div className="h-full bg-accent transition-[width]" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -92,6 +102,7 @@ export function WorkoutView() {
       <div className="mt-6 flex gap-2">
         <Button
           variant="danger"
+          size="lg"
           onClick={() => {
             if (confirm("Discard this workout? Nothing will be saved.")) {
               discardActive();
@@ -108,7 +119,7 @@ export function WorkoutView() {
 
       {/* room so the floating rest timer never covers the finish button */}
       {s.restEndsAt && <div className="h-24" aria-hidden />}
-      <RestTimer endsAt={s.restEndsAt} sound={db.settings.restSound} />
+      <RestTimer endsAt={s.restEndsAt} totalMs={s.restTotalMs ?? null} sound={db.settings.restSound} />
 
       <ExercisePicker
         open={picking}
@@ -182,8 +193,9 @@ function StrengthCard({
   const toggle = (si: number) => {
     const willBeDone = !item.sets[si].done;
     setField(si, { done: willBeDone });
-    if (willBeDone && item.restSec > 0)
-      updateActive((s) => ({ ...s, restEndsAt: Date.now() + item.restSec * 1000 }));
+    const restMs = db.settings.restSec * 1000;
+    if (willBeDone && restMs > 0)
+      updateActive((s) => ({ ...s, restEndsAt: Date.now() + restMs, restTotalMs: restMs }));
   };
 
   return (
@@ -322,34 +334,64 @@ function TreadmillCard({ index, item, db }: { index: number; item: SessionTreadm
   );
 }
 
-function RestTimer({ endsAt, sound }: { endsAt: number | null; sound: boolean }) {
-  const now = useNow(!!endsAt, 250);
+const ADJUST_BTN =
+  "grid h-11 w-14 place-items-center rounded-xl border border-text/25 bg-bg text-lg font-bold text-text shadow-[inset_0_-2px_0_rgba(0,0,0,0.4)] transition hover:border-text/50 active:scale-95 active:bg-line";
+
+function RestTimer({
+  endsAt,
+  totalMs,
+  sound,
+}: {
+  endsAt: number | null;
+  totalMs: number | null;
+  sound: boolean;
+}) {
+  const now = useNow(!!endsAt, 200);
   const beeped = useRef<number | null>(null);
-  const left = endsAt && now ? Math.ceil((endsAt - now) / 1000) : null;
+  const leftMs = endsAt && now ? endsAt - now : null;
+  const left = leftMs === null ? null : Math.ceil(leftMs / 1000);
 
   useEffect(() => {
     if (endsAt && left !== null && left <= 0 && beeped.current !== endsAt) {
       beeped.current = endsAt;
       if (sound) beep();
       else navigator.vibrate?.([200, 100, 200]);
-      updateActive((s) => ({ ...s, restEndsAt: null }));
+      updateActive((s) => ({ ...s, restEndsAt: null, restTotalMs: null }));
     }
   }, [endsAt, left, sound]);
 
   if (!endsAt || left === null || left <= 0) return null;
+
+  const adjust = (deltaSec: number) =>
+    updateActive((s) => {
+      if (!s.restEndsAt) return s;
+      const ends = s.restEndsAt + deltaSec * 1000;
+      if (ends <= Date.now()) return { ...s, restEndsAt: null, restTotalMs: null };
+      return { ...s, restEndsAt: ends, restTotalMs: Math.max(1000, (s.restTotalMs ?? 0) + deltaSec * 1000) };
+    });
+  const pct = totalMs && leftMs !== null ? Math.max(0, Math.min(1, leftMs / totalMs)) : 1;
+
   return (
     <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 px-4">
-      <div className="mx-auto flex max-w-xl items-center gap-3 rounded-2xl border border-accent/30 bg-surface-2 p-3 shadow-2xl shadow-black">
-        <div className="flex-1">
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-muted uppercase">Rest</p>
-          <p className="font-display tabular text-3xl leading-none font-bold text-accent">{formatDuration(left)}</p>
+      <div className="mx-auto max-w-xl overflow-hidden rounded-2xl border border-accent/30 bg-surface-2 shadow-2xl shadow-black">
+        <div className="flex items-center gap-2 p-3">
+          <div className="flex-1">
+            <p className="text-[11px] font-semibold tracking-[0.12em] text-muted uppercase">Rest</p>
+            <p className="font-display tabular text-4xl leading-none font-bold text-accent">{formatDuration(left)}</p>
+          </div>
+          <button type="button" aria-label="Remove 5 seconds" className={ADJUST_BTN} onClick={() => adjust(-5)}>
+            −5
+          </button>
+          <button type="button" aria-label="Add 5 seconds" className={ADJUST_BTN} onClick={() => adjust(5)}>
+            +5
+          </button>
+          <Button size="md" onClick={() => updateActive((s) => ({ ...s, restEndsAt: null, restTotalMs: null }))}>
+            Skip
+          </Button>
         </div>
-        <Button size="sm" variant="ghost" onClick={() => updateActive((s) => ({ ...s, restEndsAt: (s.restEndsAt ?? Date.now()) + 15000 }))}>
-          +15s
-        </Button>
-        <Button size="sm" onClick={() => updateActive((s) => ({ ...s, restEndsAt: null }))}>
-          Skip
-        </Button>
+        <div className="h-1 bg-bg">
+          <div className="h-full bg-accent transition-[width] duration-200 ease-linear" style={{ width: `${pct * 100}%` }} />
+        </div>
       </div>
     </div>
   );

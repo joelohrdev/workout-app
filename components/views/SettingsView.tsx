@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { getDB, replaceAll, resetAll, update, useDB } from "@/lib/store";
 import type { DB } from "@/lib/types";
-import { Button, Card, PageHeader, Segmented } from "../ui";
+import { Button, Card, PageHeader, Segmented, Stepper } from "../ui";
 
 export function SettingsView() {
   const db = useDB();
@@ -41,6 +41,19 @@ export function SettingsView() {
           <Row label="Treadmill distance">
             <Segmented value={db.settings.distanceUnit} onChange={(v) => set({ distanceUnit: v })} options={[{ value: "mi", label: "mi" }, { value: "km", label: "km" }]} />
           </Row>
+          <Row label="Rest after each set">
+            <div className="w-36">
+              <Stepper
+                label="Seconds"
+                value={db.settings.restSec}
+                min={0}
+                max={300}
+                step={5}
+                suffix="s"
+                onChange={(n) => set({ restSec: n })}
+              />
+            </div>
+          </Row>
           <Row label="Rest timer beep">
             <Segmented
               value={db.settings.restSound ? "on" : "off"}
@@ -48,7 +61,7 @@ export function SettingsView() {
               options={[{ value: "on", label: "On" }, { value: "off", label: "Vibrate" }]}
             />
           </Row>
-          <p className="text-xs text-muted">Changing units relabels numbers; it doesn’t convert past entries.</p>
+          <p className="text-xs text-muted">The rest timer starts automatically when you check off a set. Set it to 0 to turn it off. Changing units relabels numbers; it doesn’t convert past entries.</p>
         </Card>
 
         <Card className="flex flex-col gap-3">

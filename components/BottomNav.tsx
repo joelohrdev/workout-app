@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { formatDuration } from "@/lib/format";
 import { useDB, useHydrated } from "@/lib/store";
+import { useNow } from "@/lib/timers";
 import { ChartIcon, DumbbellIcon, HomeIcon, ListIcon, RunIcon } from "./Icons";
 
 const TABS = [
@@ -17,6 +19,7 @@ export function BottomNav() {
   const db = useDB();
   const hydrated = useHydrated();
   const active = hydrated && db.activeSession && path !== "/workout";
+  const now = useNow(!!active, 1000);
 
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/90 backdrop-blur-lg">
@@ -29,7 +32,9 @@ export function BottomNav() {
             <DumbbellIcon width={18} height={18} />
             <span className="truncate">{db.activeSession!.name}</span>
           </span>
-          <span className="shrink-0">Resume →</span>
+          <span className="tabular shrink-0">
+            {now ? formatDuration((now - db.activeSession!.startedAt) / 1000) : ""} · Resume →
+          </span>
         </Link>
       )}
       <ul className="mx-auto grid max-w-xl grid-cols-4">

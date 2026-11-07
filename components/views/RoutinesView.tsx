@@ -172,10 +172,9 @@ function RoutineEditor({
               <button aria-label="Remove" onClick={() => removeItem(i)} className="p-1.5 text-danger"><TrashIcon width={18} height={18} /></button>
             </div>
             {it.kind === "strength" ? (
-              <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <Stepper label="Sets" value={it.sets} min={1} max={10} onChange={(n) => setItem(i, { sets: n })} />
                 <Stepper label="Reps" value={it.reps} min={1} max={100} onChange={(n) => setItem(i, { reps: n })} />
-                <Stepper label="Rest" value={it.restSec} min={0} max={600} step={15} suffix="s" onChange={(n) => setItem(i, { restSec: n })} />
               </div>
             ) : (
               <div className="mt-3 grid grid-cols-[8rem_1fr] gap-2">
