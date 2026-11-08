@@ -104,13 +104,24 @@ async function push(state: SyncState): Promise<SyncState> {
   const sb = getSupabase()!;
   const rows = diffForPush(getDB(), state);
   let next = state;
-  for (let i = 0; i < rows.length; i += PUSH_CHUNK) {
-    const chunk = rows.slice(i, i + PUSH_CHUNK);
-    const { error } = await sb.from(TABLE).upsert(chunk, { onConflict: "user_id,kind,id" });
-    if (error) throw error;
-    next = markPushed(next, chunk);
-    writeState(next);
+  // Upload each kind separately so one rejected kind (e.g. the database
+  // hasn't been migrated for a new record type yet) doesn't block the rest.
+  const kinds = [...new Set(rows.map((r) => r.kind))];
+  let firstError: unknown = null;
+  for (const kind of kinds) {
+    const ofKind = rows.filter((r) => r.kind === kind);
+    for (let i = 0; i < ofKind.length; i += PUSH_CHUNK) {
+      const chunk = ofKind.slice(i, i + PUSH_CHUNK);
+      const { error } = await sb.from(TABLE).upsert(chunk, { onConflict: "user_id,kind,id" });
+      if (error) {
+        firstError ??= Object.assign(new Error(`${kind}: ${error.message}`), { cause: error });
+        break;
+      }
+      next = markPushed(next, chunk);
+      writeState(next);
+    }
   }
+  if (firstError) throw firstError;
   return next;
 }
 

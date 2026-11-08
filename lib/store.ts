@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { seedRoutines } from "./seed";
+import { seedPlans, seedRoutines } from "./seed";
 import type { DB } from "./types";
 
 const KEY = "homegym:v1";
@@ -12,16 +12,28 @@ const EMPTY: DB = {
   sessions: [],
   cardio: [],
   customExercises: [],
+  intervalPlans: [],
+  body: [],
   activeSession: null,
+  intervalRun: null,
   timers: {},
-  settings: { weightUnit: "lb", distanceUnit: "mi", restSound: true, restSec: 30 },
+  settings: {
+    weightUnit: "lb",
+    distanceUnit: "mi",
+    restSound: true,
+    restSec: 30,
+    dumbbells: { mode: "adjustable", min: 5, max: 50, step: 5 },
+    goals: { workoutsPerWeek: 3, distancePerWeek: 5 },
+    reminders: { enabled: false, days: [1, 3, 5], time: "18:00", tz: "UTC" },
+    lengthUnit: "in",
+  },
 };
 
 let cache: DB | null = null;
 const listeners = new Set<() => void>();
 
 function fresh(): DB {
-  return { ...EMPTY, routines: seedRoutines(Date.now()) };
+  return { ...EMPTY, routines: seedRoutines(Date.now()), intervalPlans: seedPlans(Date.now()) };
 }
 
 function load(): DB {
@@ -31,7 +43,12 @@ function load(): DB {
     if (raw) {
       const saved = JSON.parse(raw) as DB;
       // merge settings so newly added options get their defaults
-      cache = { ...EMPTY, ...saved, settings: { ...EMPTY.settings, ...saved.settings } };
+      cache = {
+        ...EMPTY,
+        ...saved,
+        intervalPlans: saved.intervalPlans ?? seedPlans(Date.now()),
+        settings: { ...EMPTY.settings, ...saved.settings },
+      };
     } else cache = fresh();
     if (!raw) persist(cache);
   } catch {

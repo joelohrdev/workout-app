@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
+import { startRestAlerts } from "@/lib/push";
 import { startSync } from "@/lib/sync";
 
 export function ServiceWorker() {
   useEffect(() => {
     startSync();
+    startRestAlerts();
     if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
     navigator.serviceWorker
       .register("/sw.js", { scope: "/", updateViaCache: "none" })

@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { findExercise } from "@/lib/exercises";
 import { formatDate, formatDuration, round, startOfDay, startOfWeek } from "@/lib/format";
 import { useDB, useHydrated } from "@/lib/store";
+import { weekStreak } from "@/lib/goals";
 import { useNow } from "@/lib/timers";
 import { nextRoutine, sessionSetCount, sessionVolume, startSession } from "@/lib/workout";
 import { ChevronRight, DumbbellIcon, GearIcon, PlayIcon, RunIcon } from "../Icons";
@@ -38,6 +39,8 @@ export function TodayView() {
   }, [db.sessions, db.cardio, now]);
 
   const up = nextRoutine(db);
+  const goals = db.settings.goals;
+  const streak = useMemo(() => (now ? weekStreak(db, now) : 0), [db, now]);
   const last = db.sessions.at(-1);
   const { weightUnit, distanceUnit } = db.settings;
 
@@ -135,10 +138,35 @@ export function TodayView() {
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-3 gap-3">
-                <Stat label="Workouts" value={week.sessions} tone="accent" />
-                <Stat label="Distance" value={round(week.distance, 1)} unit={distanceUnit} tone="cardio" />
+                <Stat
+                  label="Workouts"
+                  value={week.sessions}
+                  unit={goals.workoutsPerWeek ? `/ ${goals.workoutsPerWeek}` : undefined}
+                  tone="accent"
+                />
+                <Stat
+                  label="Distance"
+                  value={round(week.distance, 1)}
+                  unit={goals.distancePerWeek ? `/ ${goals.distancePerWeek} ${distanceUnit}` : distanceUnit}
+                  tone="cardio"
+                />
                 <Stat label="Run time" value={formatDuration(week.cardioSec)} />
               </div>
+              {(goals.workoutsPerWeek > 0 || goals.distancePerWeek > 0) && (
+                <div className="mt-3 flex flex-col gap-1.5">
+                  {goals.workoutsPerWeek > 0 && (
+                    <GoalBar pct={week.sessions / goals.workoutsPerWeek} color="bg-accent" label="Workout goal" />
+                  )}
+                  {goals.distancePerWeek > 0 && (
+                    <GoalBar pct={week.distance / goals.distancePerWeek} color="bg-cardio" label="Distance goal" />
+                  )}
+                </div>
+              )}
+              {streak > 0 && (
+                <p className="mt-3 text-sm font-semibold text-accent">
+                  🔥 {streak} week{streak === 1 ? "" : "s"} in a row hitting your workout goal
+                </p>
+              )}
               {week.volume > 0 && (
                 <p className="mt-3 text-sm text-muted">
                   {Math.round(week.volume).toLocaleString()} {weightUnit} lifted this week
@@ -163,5 +191,21 @@ export function TodayView() {
         </div>
       )}
     </>
+  );
+}
+
+function GoalBar({ pct, color, label }: { pct: number; color: string; label: string }) {
+  const p = Math.max(0, Math.min(1, pct));
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuenow={Math.round(p * 100)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className="h-1.5 overflow-hidden rounded-full bg-surface-2"
+    >
+      <div className={`h-full ${color}`} style={{ width: `${p * 100}%` }} />
+    </div>
   );
 }

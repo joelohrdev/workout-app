@@ -14,7 +14,7 @@ create table if not exists public.gym_records (
   user_id    uuid        not null default auth.uid()
                          references auth.users (id) on delete cascade,
   kind       text        not null
-                         check (kind in ('routine', 'session', 'cardio', 'exercise', 'settings')),
+                         check (kind in ('routine', 'session', 'cardio', 'exercise', 'settings', 'plan', 'body')),
   id         text        not null,
   data       jsonb       not null,
   deleted    boolean     not null default false,  -- soft delete so other devices learn about it

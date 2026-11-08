@@ -35,7 +35,10 @@ export const EXERCISES: Exercise[] = [
   { id: "db-rdl", name: "Romanian Deadlift", muscle: "glutes", equipment: ["dumbbell"] },
   { id: "db-hip-thrust", name: "Hip Thrust (back on bench)", muscle: "glutes", equipment: ["dumbbell", "bench"] },
   // Core
-  { id: "plank", name: "Plank (seconds)", muscle: "core", equipment: ["bodyweight"] },
+  { id: "plank", name: "Plank", muscle: "core", equipment: ["bodyweight"], timed: true },
+  { id: "side-plank", name: "Side Plank", muscle: "core", equipment: ["bodyweight"], timed: true, unilateral: true },
+  { id: "wall-sit", name: "Wall Sit", muscle: "legs", equipment: ["bodyweight"], timed: true },
+  { id: "db-farmer-hold", name: "Farmer's Hold", muscle: "core", equipment: ["dumbbell"], timed: true },
   { id: "db-russian-twist", name: "Russian Twist", muscle: "core", equipment: ["dumbbell"] },
   { id: "bench-leg-raise", name: "Bench Leg Raise", muscle: "core", equipment: ["bench", "bodyweight"] },
   { id: "db-dead-bug", name: "Weighted Dead Bug", muscle: "core", equipment: ["dumbbell"] },

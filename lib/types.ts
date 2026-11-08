@@ -16,6 +16,8 @@ export type Exercise = {
   equipment: Equipment[];
   /** true when the exercise is done one side at a time */
   unilateral?: boolean;
+  /** logged in seconds with a countdown (planks, holds) instead of reps */
+  timed?: boolean;
   custom?: boolean;
 };
 
@@ -25,6 +27,8 @@ export type StrengthItem = {
   sets: number;
   reps: number;
   restSec: number;
+  /** items sharing a group id are done as a superset / circuit */
+  group?: string;
 };
 
 export type TreadmillItem = {
@@ -54,6 +58,8 @@ export type SessionStrength = {
   exerciseId: string;
   restSec: number;
   sets: LoggedSet[];
+  group?: string;
+  note?: string;
 };
 
 export type SessionTreadmill = {
@@ -78,6 +84,9 @@ export type Session = {
   restTotalMs?: number | null;
   /** exercise ids that hit a new estimated 1RM, set on finish */
   prs?: string[];
+  /** how hard it felt, 1–10 */
+  effort?: number | null;
+  note?: string;
 };
 
 export type CardioLog = {
@@ -89,6 +98,60 @@ export type CardioLog = {
   incline?: number | null;
   notes?: string;
   sessionId?: string;
+  /** name of the interval plan used, if any */
+  planName?: string;
+};
+
+export type IntervalBlock = {
+  label: string;
+  sec: number;
+  speed?: number | null;
+  incline?: number | null;
+};
+
+export type IntervalPlan = {
+  id: string;
+  name: string;
+  /** warm-up / work / rest / cool-down blocks, already expanded */
+  blocks: IntervalBlock[];
+  createdAt: number;
+  /** the builder inputs, so the plan can be edited later */
+  recipe?: IntervalRecipe;
+};
+
+export type IntervalRecipe = {
+  warmSec: number;
+  rounds: number;
+  work: { sec: number; speed: number | null; incline: number | null };
+  recover: { sec: number; speed: number | null; incline: number | null };
+  coolSec: number;
+  easySpeed: number | null;
+};
+
+export type BodyLog = {
+  id: string;
+  date: number;
+  weight?: number | null;
+  waist?: number | null;
+  chest?: number | null;
+  arms?: number | null;
+  hips?: number | null;
+  thighs?: number | null;
+  note?: string;
+};
+
+export type Dumbbells =
+  | { mode: "fixed"; weights: number[] }
+  | { mode: "adjustable"; min: number; max: number; step: number };
+
+export type Reminders = {
+  enabled: boolean;
+  /** 0 = Sunday … 6 = Saturday */
+  days: number[];
+  /** "HH:MM", local time */
+  time: string;
+  /** IANA time zone the time is in */
+  tz: string;
 };
 
 export type TimerState = {
@@ -108,6 +171,11 @@ export type Settings = {
   restSound: boolean;
   /** seconds of rest started automatically after each completed set */
   restSec: number;
+  dumbbells: Dumbbells;
+  goals: { workoutsPerWeek: number; distancePerWeek: number };
+  reminders: Reminders;
+  /** body measurements unit */
+  lengthUnit: "in" | "cm";
 };
 
 export type DB = {
@@ -116,7 +184,11 @@ export type DB = {
   sessions: Session[];
   cardio: CardioLog[];
   customExercises: Exercise[];
+  intervalPlans: IntervalPlan[];
+  body: BodyLog[];
   activeSession: Session | null;
+  /** interval treadmill run in progress */
+  intervalRun: { planId: string; timerId: string } | null;
   timers: Record<string, TimerState>;
   settings: Settings;
 };

@@ -8,6 +8,10 @@ import { useNow } from "@/lib/timers";
 import type { Session } from "@/lib/types";
 import { bestE1rm, sessionSetCount, sessionVolume } from "@/lib/workout";
 import { RunIcon, TrashIcon, TrophyIcon } from "../Icons";
+import { BodyPanel } from "../BodyPanel";
+import { Calendar } from "../Calendar";
+import { ExerciseSheet } from "../ExerciseSheet";
+import { SessionEditor } from "../SessionEditor";
 import { Card, PageHeader, Segmented } from "../ui";
 
 const WEEKS = 8;
@@ -16,8 +20,9 @@ export function HistoryView() {
   const db = useDB();
   const hydrated = useHydrated();
   const now = useNow(false);
-  const [tab, setTab] = useState<"workouts" | "progress">("workouts");
+  const [tab, setTab] = useState<"workouts" | "progress" | "body">("workouts");
   const [open, setOpen] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Session | null>(null);
 
   const weeks = useMemo(() => {
     if (!now) return [];
@@ -58,6 +63,7 @@ export function HistoryView() {
             options={[
               { value: "workouts", label: "Workouts" },
               { value: "progress", label: "Progress" },
+              { value: "body", label: "Body" },
             ]}
           />
         }
@@ -65,8 +71,12 @@ export function HistoryView() {
 
       {!hydrated ? (
         <div className="h-64 animate-pulse rounded-2xl bg-surface" />
+      ) : tab === "body" ? (
+        <BodyPanel />
       ) : tab === "workouts" ? (
         <>
+          {now && <Calendar now={now} />}
+          <div className="mt-4" />
           <WeeklyChart weeks={weeks} unit={db.settings.distanceUnit} />
           {sessions.length === 0 ? (
             <Card className="mt-4 text-center text-muted">Finished workouts will show up here.</Card>
@@ -105,6 +115,7 @@ export function HistoryView() {
                                 <p className="tabular text-muted">
                                   {it.sets.map((x) => (x.weight ? `${x.weight}×${x.reps}` : `${x.reps}`)).join("  ·  ")}
                                 </p>
+                                {it.note && <p className="text-muted italic">“{it.note}”</p>}
                               </li>
                             ) : null,
                           )}
@@ -114,9 +125,21 @@ export function HistoryView() {
                             </li>
                           ))}
                         </ul>
-                        <button onClick={() => remove(s)} className="mt-4 flex items-center gap-1.5 text-sm text-danger">
-                          <TrashIcon width={14} height={14} /> Delete workout
-                        </button>
+                        {(s.effort || s.note) && (
+                          <p className="mt-3 text-sm text-muted">
+                            {s.effort ? `Effort ${s.effort}/10` : ""}
+                            {s.effort && s.note ? " · " : ""}
+                            {s.note ? <span className="italic">“{s.note}”</span> : null}
+                          </p>
+                        )}
+                        <div className="mt-4 flex gap-4">
+                          <button onClick={() => setEditing(s)} className="text-sm font-semibold text-accent">
+                            Edit workout
+                          </button>
+                          <button onClick={() => remove(s)} className="flex items-center gap-1.5 text-sm text-danger">
+                            <TrashIcon width={14} height={14} /> Delete
+                          </button>
+                        </div>
                       </div>
                     )}
                   </li>
@@ -128,6 +151,7 @@ export function HistoryView() {
       ) : (
         <Progress />
       )}
+      {editing && <SessionEditor session={editing} onClose={() => setEditing(null)} />}
     </>
   );
 }
@@ -169,6 +193,7 @@ function WeeklyChart({
 
 function Progress() {
   const db = useDB();
+  const [detail, setDetail] = useState<string | null>(null);
   const unit = db.settings.weightUnit;
   const series = useMemo(() => {
     const map = new Map<string, { date: number; best: number; top: number; reps: number }[]>();
@@ -188,6 +213,7 @@ function Progress() {
   if (!series.length) return <Card className="text-center text-muted">Log a few workouts to see your strength trends.</Card>;
 
   return (
+    <>
     <ul className="flex flex-col gap-2">
       {series.map(({ ex, pts }) => {
         const bw = isBodyweight(ex) || pts.every((p) => !p.top);
@@ -196,7 +222,11 @@ function Progress() {
         const latest = vals.at(-1)!;
         const change = first ? ((latest - first) / first) * 100 : 0;
         return (
-          <li key={ex.id} className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-4">
+          <li key={ex.id}>
+            <button
+              onClick={() => setDetail(ex.id)}
+              className="flex w-full items-center gap-3 rounded-2xl border border-line bg-surface p-4 text-left"
+            >
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{ex.name}</p>
               <p className="text-sm text-muted">
@@ -210,10 +240,13 @@ function Progress() {
             <span className={`tabular w-12 text-right text-sm font-semibold ${change >= 0 ? "text-accent" : "text-danger"}`}>
               {pts.length > 1 ? `${change >= 0 ? "+" : ""}${Math.round(change)}%` : "—"}
             </span>
+            </button>
           </li>
         );
       })}
     </ul>
+    {detail && <ExerciseSheet exerciseId={detail} onClose={() => setDetail(null)} />}
+    </>
   );
 }
 

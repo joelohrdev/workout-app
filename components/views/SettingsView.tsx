@@ -1,8 +1,11 @@
 "use client";
 
 import { useRef } from "react";
+import { bodyCsv, download, runsCsv, setsCsv } from "@/lib/csv";
 import { getDB, replaceAll, resetAll, update, useDB } from "@/lib/store";
 import { useSyncStatus } from "@/lib/sync";
+import { DumbbellCard } from "../DumbbellCard";
+import { NotificationsCard } from "../NotificationsCard";
 import { SyncCard } from "../SyncCard";
 import type { DB } from "@/lib/types";
 import { Button, Card, PageHeader, Segmented, Stepper } from "../ui";
@@ -15,14 +18,8 @@ export function SettingsView() {
   const set = (patch: Partial<DB["settings"]>) =>
     update((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
 
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify(getDB(), null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `home-gym-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  const exportData = () =>
+    download(`home-gym-${today()}.json`, JSON.stringify(getDB(), null, 2), "application/json");
 
   const importData = async (f: File) => {
     try {
@@ -68,7 +65,45 @@ export function SettingsView() {
           <p className="text-xs text-muted">The rest timer starts automatically when you check off a set. Set it to 0 to turn it off. Changing units relabels numbers; it doesn’t convert past entries.</p>
         </Card>
 
+        <DumbbellCard />
+
+        <Card className="flex flex-col gap-4">
+          <p className="font-semibold">Weekly goals</p>
+          <Row label="Workouts per week">
+            <div className="w-36">
+              <Stepper
+                label="Workouts"
+                value={db.settings.goals.workoutsPerWeek}
+                min={0}
+                max={14}
+                onChange={(n) => set({ goals: { ...db.settings.goals, workoutsPerWeek: n } })}
+              />
+            </div>
+          </Row>
+          <Row label={`Treadmill distance (${db.settings.distanceUnit})`}>
+            <div className="w-36">
+              <Stepper
+                label="Per week"
+                value={db.settings.goals.distancePerWeek}
+                min={0}
+                max={200}
+                onChange={(n) => set({ goals: { ...db.settings.goals, distancePerWeek: n } })}
+              />
+            </div>
+          </Row>
+          <Row label="Body measurements">
+            <Segmented
+              value={db.settings.lengthUnit}
+              onChange={(v) => set({ lengthUnit: v })}
+              options={[{ value: "in", label: "in" }, { value: "cm", label: "cm" }]}
+            />
+          </Row>
+          <p className="text-xs text-muted">Set a goal to 0 to hide it. A week counts toward your streak when you hit your workout goal.</p>
+        </Card>
+
         <SyncCard />
+
+        <NotificationsCard />
 
         <Card className="flex flex-col gap-3">
           <p className="font-semibold">Your data</p>
@@ -77,6 +112,13 @@ export function SettingsView() {
               ? "Saved on this device and synced to your account. Export a JSON backup any time."
               : "Everything is stored on this device only. Export a backup now and then, or to move to a new phone."}
           </p>
+          <p className="text-xs font-semibold tracking-[0.12em] text-muted uppercase">Spreadsheet (CSV)</p>
+          <div className="grid grid-cols-3 gap-2">
+            <Button variant="ghost" size="sm" onClick={() => download(`home-gym-sets-${today()}.csv`, setsCsv(getDB()))}>Sets</Button>
+            <Button variant="ghost" size="sm" onClick={() => download(`home-gym-runs-${today()}.csv`, runsCsv(getDB()))}>Runs</Button>
+            <Button variant="ghost" size="sm" onClick={() => download(`home-gym-body-${today()}.csv`, bodyCsv(getDB()))}>Body</Button>
+          </div>
+          <p className="text-xs font-semibold tracking-[0.12em] text-muted uppercase">Full backup</p>
           <div className="grid grid-cols-2 gap-2">
             <Button variant="ghost" onClick={exportData}>Export JSON</Button>
             <Button variant="ghost" onClick={() => file.current?.click()}>Import JSON</Button>
@@ -112,3 +154,5 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </div>
   );
 }
+
+const today = () => new Date().toISOString().slice(0, 10);

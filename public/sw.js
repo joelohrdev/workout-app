@@ -1,6 +1,6 @@
 // Home Gym service worker: makes the app open and work fully offline.
 // All data lives in localStorage, so we only need to cache the app shell.
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `homegym-${VERSION}`;
 const PAGES = ["/", "/treadmill", "/routines", "/workout", "/history", "/settings"];
 const STATIC = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
@@ -103,4 +103,43 @@ self.addEventListener("fetch", (event) => {
   // Everything else (RSC payloads etc.) goes straight to the network. If it
   // fails offline, the router falls back to a full page load, which the
   // navigate handler above serves from cache.
+});
+
+// ---- Push notifications (rest over, workout reminders) ----
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: "Home Gym", body: event.data && event.data.text() };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Home Gym", {
+      body: data.body || "",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: data.tag,
+      renotify: !!data.tag,
+      vibrate: [200, 100, 200],
+      data: { url: data.url || "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const w of wins) {
+        if (new URL(w.url).origin === self.location.origin) {
+          await w.focus();
+          if ("navigate" in w) await w.navigate(url).catch(() => {});
+          return;
+        }
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
 });

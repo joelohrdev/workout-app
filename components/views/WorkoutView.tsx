@@ -11,14 +11,18 @@ import type { DB, Session, SessionStrength, SessionTreadmill } from "@/lib/types
 import {
   discardActive,
   finishActive,
+  groupLabels,
   lastPerformance,
+  roundComplete,
   sessionSetCount,
   sessionVolume,
   suggestWeight,
   updateActive,
+  updateSession,
 } from "@/lib/workout";
 import { ExercisePicker } from "../ExercisePicker";
-import { CheckIcon, DumbbellIcon, PlusIcon, RunIcon, TrashIcon, TrophyIcon } from "../Icons";
+import { ExerciseSheet } from "../ExerciseSheet";
+import { CheckIcon, DumbbellIcon, PlayIcon, PlusIcon, RunIcon, TrashIcon, TrophyIcon } from "../Icons";
 import { Stopwatch } from "../Stopwatch";
 import { Button, Card, NumberInput, PageHeader } from "../ui";
 
@@ -30,12 +34,16 @@ export function WorkoutView() {
   const now = useNow(!!s, 1000);
   const [picking, setPicking] = useState(false);
   const [summary, setSummary] = useState<Session | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
   // keep the screen on for the whole workout so the timers stay visible
   useWakeLock(!!s && !summary);
 
   if (!hydrated) return <div className="mt-6 h-64 animate-pulse rounded-2xl bg-surface" />;
 
-  if (summary) return <Summary session={summary} db={db} onDone={() => router.push("/")} />;
+  if (summary) {
+    const saved = db.sessions.find((x) => x.id === summary.id) ?? summary;
+    return <Summary session={saved} db={db} onDone={() => router.push("/")} />;
+  }
 
   if (!s) {
     return (
@@ -56,6 +64,7 @@ export function WorkoutView() {
     0,
   );
   const total = s.items.reduce((n, it) => n + (it.kind === "strength" ? it.sets.length : 1), 0);
+  const labels = groupLabels(s.items);
 
   const finish = () => {
     if (done === 0 && !confirm("No sets checked off yet. Finish anyway?")) return;
@@ -88,7 +97,15 @@ export function WorkoutView() {
       <div className="flex flex-col gap-3">
         {s.items.map((it, i) =>
           it.kind === "strength" ? (
-            <StrengthCard key={i} index={i} item={it} db={db} sessionId={s.id} />
+            <StrengthCard
+              key={i}
+              index={i}
+              item={it}
+              db={db}
+              session={s}
+              groupLabel={it.group ? labels.get(it.group) : undefined}
+              onOpen={() => setDetail(it.exerciseId)}
+            />
           ) : (
             <TreadmillCard key={i} index={i} item={it} db={db} />
           ),
@@ -121,13 +138,16 @@ export function WorkoutView() {
       {s.restEndsAt && <div className="h-24" aria-hidden />}
       <RestTimer endsAt={s.restEndsAt} totalMs={s.restTotalMs ?? null} sound={db.settings.restSound} />
 
+      {detail && <ExerciseSheet exerciseId={detail} onClose={() => setDetail(null)} />}
+
       <ExercisePicker
         open={picking}
         onClose={() => setPicking(false)}
         onPick={(ex) =>
           updateActive((x) => {
             const last = lastPerformance(db, ex.id);
-            const { weight } = suggestWeight(last, db.settings.weightUnit);
+            const { weight } = suggestWeight(last, db.settings.dumbbells);
+            const timed = !!ex.timed;
             return {
               ...x,
               items: [
@@ -136,7 +156,12 @@ export function WorkoutView() {
                   kind: "strength",
                   exerciseId: ex.id,
                   restSec: 90,
-                  sets: Array.from({ length: 3 }, () => ({ reps: 10, weight, targetReps: 10, done: false })),
+                  sets: Array.from({ length: 3 }, () => ({
+                    reps: timed ? 30 : 10,
+                    weight,
+                    targetReps: timed ? 30 : 10,
+                    done: false,
+                  })),
                 },
               ],
             };
@@ -167,19 +192,26 @@ function StrengthCard({
   index,
   item,
   db,
-  sessionId,
+  session,
+  groupLabel,
+  onOpen,
 }: {
   index: number;
   item: SessionStrength;
   db: DB;
-  sessionId: string;
+  session: Session;
+  groupLabel?: string;
+  onOpen: () => void;
 }) {
   const ex = findExercise(item.exerciseId, db.customExercises);
   const bw = isBodyweight(ex);
+  const timed = !!ex.timed;
+  const side = ex.unilateral ? "/side" : "";
   const unit = db.settings.weightUnit;
-  const last = lastPerformance(db, item.exerciseId, sessionId);
-  const sug = suggestWeight(last, unit);
+  const last = lastPerformance(db, item.exerciseId, session.id);
+  const sug = suggestWeight(last, db.settings.dumbbells);
   const allDone = item.sets.length > 0 && item.sets.every((x) => x.done);
+  const [noteOpen, setNoteOpen] = useState(!!item.note);
 
   const setField = (si: number, patch: Partial<SessionStrength["sets"][number]>) =>
     patchItem<SessionStrength>(index, (it) => {
@@ -190,27 +222,35 @@ function StrengthCard({
       return { ...it, sets };
     });
 
-  const toggle = (si: number) => {
-    const willBeDone = !item.sets[si].done;
-    setField(si, { done: willBeDone });
+  /** Mark a set done/undone; start rest once the round (or superset round) is complete. */
+  const complete = (si: number, done: boolean, patch: Partial<SessionStrength["sets"][number]> = {}) => {
     const restMs = db.settings.restSec * 1000;
-    if (willBeDone && restMs > 0)
-      updateActive((s) => ({ ...s, restEndsAt: Date.now() + restMs, restTotalMs: restMs }));
+    updateActive((s) => {
+      const items = s.items.map((it, j) =>
+        j === index && it.kind === "strength"
+          ? { ...it, sets: it.sets.map((x, k) => (k === si ? { ...x, ...patch, done } : x)) }
+          : it,
+      );
+      const rest = done && restMs > 0 && roundComplete(items, index, si);
+      return rest ? { ...s, items, restEndsAt: Date.now() + restMs, restTotalMs: restMs } : { ...s, items };
+    });
   };
 
+  const fmtLast = (x: SessionStrength["sets"][number]) =>
+    timed ? `${x.reps}s` : bw || !x.weight ? `${x.reps} reps` : `${x.weight}×${x.reps}`;
+
   return (
-    <Card className={allDone ? "border-accent/40" : ""}>
+    <Card className={`${allDone ? "border-accent/40" : ""} ${groupLabel ? "border-l-4 border-l-accent/70" : ""}`}>
+      {groupLabel && (
+        <p className="mb-1 text-[11px] font-bold tracking-[0.12em] text-accent uppercase">Superset {groupLabel}</p>
+      )}
       <div className="flex items-start gap-2">
         <DumbbellIcon width={18} height={18} className="mt-1 shrink-0 text-accent" />
-        <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">{ex.name}</h2>
+        <button className="min-w-0 flex-1 text-left" onClick={onOpen}>
+          <h2 className="font-semibold underline decoration-line decoration-dotted underline-offset-4">{ex.name}</h2>
           {last ? (
             <p className="text-xs text-muted">
-              Last:{" "}
-              {last.sets
-                .filter((x) => x.done)
-                .map((x) => (bw || !x.weight ? `${x.reps} reps` : `${x.weight}×${x.reps}`))
-                .join(", ")}
+              Last: {last.sets.filter((x) => x.done).map(fmtLast).join(", ")}
               {sug.bump && !bw && (
                 <span className="ml-1.5 rounded-full bg-accent/15 px-1.5 py-0.5 font-semibold text-accent">
                   ↑ try {sug.weight} {unit}
@@ -218,9 +258,14 @@ function StrengthCard({
               )}
             </p>
           ) : (
-            <p className="text-xs text-muted">First time — pick a weight you can do for {item.sets[0]?.targetReps ?? 10} clean reps</p>
+            <p className="text-xs text-muted">
+              {timed
+                ? "First time — hold with good form, stop when it breaks down"
+                : `First time — pick a weight you can do for ${item.sets[0]?.targetReps ?? 10} clean reps`}
+            </p>
           )}
-        </div>
+          {last?.note && <p className="mt-0.5 text-xs text-muted italic">Last note: “{last.note}”</p>}
+        </button>
         <button
           aria-label="Remove exercise"
           className="p-1 text-muted"
@@ -236,7 +281,10 @@ function StrengthCard({
       <div className="mt-3 grid grid-cols-[2rem_1fr_1fr_3rem] items-center gap-2 text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
         <span>Set</span>
         <span className="text-center">{bw ? "" : unit}</span>
-        <span className="text-center">Reps</span>
+        <span className="text-center">
+          {timed ? "Sec" : "Reps"}
+          {side}
+        </span>
         <span />
       </div>
       <ul className="mt-1 flex flex-col gap-2">
@@ -255,26 +303,35 @@ function StrengthCard({
               />
             )}
             <NumberInput
-              ariaLabel={`Set ${si + 1} reps`}
+              ariaLabel={`Set ${si + 1} ${timed ? "seconds" : "reps"}`}
               value={set.reps}
               decimal={false}
               placeholder={String(set.targetReps)}
               onChange={(v) => setField(si, { reps: v })}
               className={set.done ? "opacity-60" : ""}
             />
-            <button
-              aria-label={set.done ? `Undo set ${si + 1}` : `Complete set ${si + 1}`}
-              onClick={() => toggle(si)}
-              className={`grid h-11 w-12 place-items-center rounded-xl transition active:scale-95 ${
-                set.done ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted"
-              }`}
-            >
-              <CheckIcon width={20} height={20} />
-            </button>
+            {timed && !set.done ? (
+              <HoldButton
+                seconds={set.reps ?? set.targetReps}
+                label={`set ${si + 1}`}
+                sound={db.settings.restSound}
+                onDone={(held) => complete(si, true, { reps: held })}
+              />
+            ) : (
+              <button
+                aria-label={set.done ? `Undo set ${si + 1}` : `Complete set ${si + 1}`}
+                onClick={() => complete(si, !set.done)}
+                className={`grid h-11 w-12 place-items-center rounded-xl transition active:scale-95 ${
+                  set.done ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted"
+                }`}
+              >
+                <CheckIcon width={20} height={20} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           className="text-sm font-semibold text-accent"
           onClick={() =>
@@ -289,6 +346,11 @@ function StrengthCard({
         >
           + Add set
         </button>
+        {!noteOpen && (
+          <button className="text-sm text-muted" onClick={() => setNoteOpen(true)}>
+            + Note
+          </button>
+        )}
         {item.sets.length > 1 && (
           <button
             className="ml-auto text-sm text-muted"
@@ -298,7 +360,71 @@ function StrengthCard({
           </button>
         )}
       </div>
+      {noteOpen && (
+        <textarea
+          aria-label={`Note for ${ex.name}`}
+          value={item.note ?? ""}
+          onChange={(e) => patchItem<SessionStrength>(index, (it) => ({ ...it, note: e.target.value }))}
+          placeholder="How did it feel? Anything to remember next time?"
+          rows={2}
+          className="mt-3 w-full resize-none rounded-xl bg-surface-2 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+        />
+      )}
     </Card>
+  );
+}
+
+/** Start/stop countdown for a timed set (plank, wall sit…). */
+function HoldButton({
+  seconds,
+  label,
+  sound,
+  onDone,
+}: {
+  seconds: number;
+  label: string;
+  sound: boolean;
+  onDone: (heldSec: number) => void;
+}) {
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const now = useNow(startedAt !== null, 200);
+  const fired = useRef(false);
+  const elapsed = startedAt && now ? (now - startedAt) / 1000 : 0;
+  const left = Math.max(0, Math.ceil(seconds - elapsed));
+
+  useEffect(() => {
+    if (startedAt && now && elapsed >= seconds && !fired.current) {
+      fired.current = true;
+      if (sound) beep();
+      else navigator.vibrate?.([200, 100, 200]);
+      onDone(seconds);
+    }
+  }, [startedAt, now, elapsed, seconds, sound, onDone]);
+
+  if (startedAt === null)
+    return (
+      <button
+        aria-label={`Start hold for ${label}`}
+        onClick={() => {
+          fired.current = false;
+          setStartedAt(Date.now());
+        }}
+        className="grid h-11 w-12 place-items-center rounded-xl bg-accent/15 text-accent transition active:scale-95"
+      >
+        <PlayIcon width={18} height={18} />
+      </button>
+    );
+  return (
+    <button
+      aria-label={`Stop hold for ${label} early`}
+      onClick={() => {
+        fired.current = true;
+        onDone(Math.max(1, Math.round(elapsed)));
+      }}
+      className="font-display tabular grid h-11 w-12 place-items-center rounded-xl bg-accent text-xl font-bold text-accent-ink"
+    >
+      {left}
+    </button>
   );
 }
 
@@ -439,6 +565,40 @@ function Summary({ session, db, onDone }: { session: Session; db: DB; onDone: ()
             </ul>
           </div>
         )}
+      </Card>
+      <Card className="mt-3">
+        <p className="text-xs font-semibold tracking-[0.12em] text-muted uppercase">How hard was it?</p>
+        <div className="mt-2 grid grid-cols-10 gap-1">
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+            <button
+              key={n}
+              aria-label={`Effort ${n} of 10`}
+              aria-pressed={session.effort === n}
+              onClick={() => updateSession(session.id, (x) => ({ ...x, effort: x.effort === n ? null : n }))}
+              className={`tabular h-10 rounded-lg text-sm font-bold ${
+                session.effort === n
+                  ? "bg-accent text-accent-ink"
+                  : (session.effort ?? 0) >= n
+                    ? "bg-accent/25 text-text"
+                    : "bg-surface-2 text-muted"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[11px] text-muted">
+          <span>Easy</span>
+          <span>All-out</span>
+        </div>
+        <textarea
+          aria-label="Workout note"
+          value={session.note ?? ""}
+          onChange={(e) => updateSession(session.id, (x) => ({ ...x, note: e.target.value }))}
+          placeholder="Notes on today's workout (optional)"
+          rows={2}
+          className="mt-3 w-full resize-none rounded-xl bg-surface-2 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent"
+        />
       </Card>
       <Button size="lg" className="mt-4 w-full" onClick={onDone}>
         Done

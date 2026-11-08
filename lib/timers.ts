@@ -95,3 +95,8 @@ export function beep(times = 3) {
     // audio not available
   }
 }
+
+/** Jump a timer forward (used to skip an interval block). */
+export function addToTimer(id: string, ms: number) {
+  setTimer(id, (t) => ({ ...t, accumulatedMs: t.accumulatedMs + ms }));
+}

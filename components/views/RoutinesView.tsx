@@ -5,7 +5,7 @@ import { useState } from "react";
 import { findExercise } from "@/lib/exercises";
 import { uid, update, useDB, useHydrated } from "@/lib/store";
 import type { Routine, RoutineItem } from "@/lib/types";
-import { startSession } from "@/lib/workout";
+import { groupLabels, startSession } from "@/lib/workout";
 import { ExercisePicker } from "../ExercisePicker";
 import { DownIcon, DumbbellIcon, PlayIcon, PlusIcon, RunIcon, TrashIcon, UpIcon } from "../Icons";
 import { Button, Card, PageHeader, Sheet, Stepper } from "../ui";
@@ -141,10 +141,43 @@ function RoutineEditor({
       const j = i + dir;
       if (j < 0 || j >= items.length) return x;
       [items[i], items[j]] = [items[j], items[i]];
-      return { ...x, items };
+      return { ...x, items: tidyGroups(items) };
     });
-  const removeItem = (i: number) => setR((x) => ({ ...x, items: x.items.filter((_, j) => j !== i) }));
+  const removeItem = (i: number) =>
+    setR((x) => ({ ...x, items: tidyGroups(x.items.filter((_, j) => j !== i)) }));
   const add = (item: RoutineItem) => setR((x) => ({ ...x, items: [...x.items, item] }));
+
+  const linked = (i: number) => {
+    const a = r.items[i];
+    const b = r.items[i + 1];
+    return a?.kind === "strength" && b?.kind === "strength" && !!a.group && a.group === b.group;
+  };
+  /** Join or split items i and i+1 as a superset. */
+  const toggleLink = (i: number) =>
+    setR((x) => {
+      const items = x.items.map((it) => ({ ...it })) as RoutineItem[];
+      const a = items[i];
+      const b = items[i + 1];
+      if (a.kind !== "strength" || b.kind !== "strength") return x;
+      if (a.group && a.group === b.group) {
+        // split: everything after the boundary in this group gets a new group
+        const old = a.group;
+        const fresh = uid();
+        for (let j = i + 1; j < items.length; j++) {
+          const it = items[j];
+          if (it.kind === "strength" && it.group === old) it.group = fresh;
+          else break;
+        }
+      } else {
+        const g = a.group ?? b.group ?? uid();
+        const from = b.group;
+        a.group = g;
+        for (const it of items) if (it.kind === "strength" && from && it.group === from) it.group = g;
+        b.group = g;
+      }
+      return { ...x, items: tidyGroups(items) };
+    });
+  const labels = groupLabels(r.items);
 
   return (
     <Sheet open onClose={onCancel} title={isNew ? "New routine" : "Edit routine"}>
@@ -157,7 +190,17 @@ function RoutineEditor({
 
       <ol className="mt-4 flex flex-col gap-3">
         {r.items.map((it, i) => (
-          <li key={i} className="rounded-xl border border-line bg-bg/40 p-3">
+          <li key={i} className="flex flex-col gap-3">
+            <div
+              className={`rounded-xl border bg-bg/40 p-3 ${
+                it.kind === "strength" && it.group && labels.has(it.group) ? "border-accent/50" : "border-line"
+              }`}
+            >
+            {it.kind === "strength" && it.group && labels.has(it.group) && (
+              <p className="mb-1 text-[11px] font-bold tracking-[0.12em] text-accent uppercase">
+                Superset {labels.get(it.group)}
+              </p>
+            )}
             <div className="flex items-center gap-2">
               {it.kind === "treadmill" ? (
                 <RunIcon width={18} height={18} className="shrink-0 text-cardio" />
@@ -174,7 +217,11 @@ function RoutineEditor({
             {it.kind === "strength" ? (
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Stepper label="Sets" value={it.sets} min={1} max={10} onChange={(n) => setItem(i, { sets: n })} />
-                <Stepper label="Reps" value={it.reps} min={1} max={100} onChange={(n) => setItem(i, { reps: n })} />
+                {findExercise(it.exerciseId, db.customExercises).timed ? (
+                  <Stepper label="Seconds" value={it.reps} min={5} max={600} step={5} onChange={(n) => setItem(i, { reps: n })} />
+                ) : (
+                  <Stepper label="Reps" value={it.reps} min={1} max={100} onChange={(n) => setItem(i, { reps: n })} />
+                )}
               </div>
             ) : (
               <div className="mt-3 grid grid-cols-[8rem_1fr] gap-2">
@@ -189,6 +236,18 @@ function RoutineEditor({
                   />
                 </label>
               </div>
+            )}
+            </div>
+            {it.kind === "strength" && r.items[i + 1]?.kind === "strength" && (
+              <button
+                type="button"
+                onClick={() => toggleLink(i)}
+                className={`-my-1.5 self-center rounded-full border px-3 py-1 text-xs font-semibold ${
+                  linked(i) ? "border-accent bg-accent/15 text-accent" : "border-line text-muted"
+                }`}
+              >
+                {linked(i) ? "⛓ Superset — tap to split" : "+ Superset with next"}
+              </button>
             )}
           </li>
         ))}
@@ -216,9 +275,26 @@ function RoutineEditor({
       <ExercisePicker
         open={picking}
         onClose={() => setPicking(false)}
-        onPick={(ex) => add({ kind: "strength", exerciseId: ex.id, sets: 3, reps: 10, restSec: 90 })}
+        onPick={(ex) =>
+          add({ kind: "strength", exerciseId: ex.id, sets: 3, reps: ex.timed ? 30 : 10, restSec: 90 })
+        }
         onPickTreadmill={() => add({ kind: "treadmill", minutes: 10 })}
       />
     </Sheet>
   );
+}
+
+/** Drop superset ids that no longer join two neighbouring exercises. */
+function tidyGroups(items: RoutineItem[]): RoutineItem[] {
+  return items.map((it, i) => {
+    if (it.kind !== "strength" || !it.group) return it;
+    const prev = items[i - 1];
+    const next = items[i + 1];
+    const joined =
+      (prev?.kind === "strength" && prev.group === it.group) || (next?.kind === "strength" && next.group === it.group);
+    if (joined) return it;
+    const { group: _drop, ...rest } = it;
+    void _drop;
+    return rest;
+  });
 }

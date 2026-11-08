@@ -1,15 +1,16 @@
 "use client";
 
+import { nearestWeight, nextWeightUp } from "./dumbbells";
 import { uid, update } from "./store";
 import { clearTimer, elapsedMs } from "./timers";
 import type {
   CardioLog,
   DB,
+  Dumbbells,
   LoggedSet,
   Routine,
   Session,
   SessionStrength,
-  WeightUnit,
 } from "./types";
 
 /** Epley estimated one-rep max */
@@ -47,19 +48,21 @@ export function lastPerformance(
 
 /**
  * Simple double-progression rule: if every set last time hit its target reps,
- * suggest adding the smallest dumbbell jump. Otherwise repeat the weight.
+ * suggest the next dumbbell you own. Otherwise repeat the weight.
  */
 export function suggestWeight(
   last: SessionStrength | null,
-  unit: WeightUnit,
+  dumbbells: Dumbbells,
 ): { weight: number | null; bump: boolean } {
   if (!last) return { weight: null, bump: false };
   const done = last.sets.filter((s) => s.done);
   const top = Math.max(0, ...done.map((s) => s.weight ?? 0));
   if (!top) return { weight: null, bump: false };
   const allHit = done.length >= last.sets.length && done.every((s) => (s.reps ?? 0) >= s.targetReps);
-  const step = unit === "lb" ? 5 : 2;
-  return allHit ? { weight: top + step, bump: true } : { weight: top, bump: false };
+  const owned = nearestWeight(dumbbells, top);
+  if (!allHit) return { weight: owned, bump: false };
+  const up = nextWeightUp(dumbbells, owned);
+  return { weight: up, bump: up > owned };
 }
 
 export function buildSession(db: DB, routine: Routine | null): Session {
@@ -82,11 +85,12 @@ export function buildSession(db: DB, routine: Routine | null): Session {
         };
       }
       const last = lastPerformance(db, item.exerciseId);
-      const { weight } = suggestWeight(last, db.settings.weightUnit);
+      const { weight } = suggestWeight(last, db.settings.dumbbells);
       return {
         kind: "strength",
         exerciseId: item.exerciseId,
         restSec: item.restSec,
+        group: item.group,
         sets: Array.from({ length: item.sets }, () => ({
           reps: item.reps,
           weight,
@@ -198,3 +202,38 @@ export function logCardio(log: Omit<CardioLog, "id">) {
 }
 
 export { clearTimer };
+
+/** Exercises in the same superset/circuit as item `index` (including itself), in order. */
+export function groupIndexes(items: Session["items"], index: number): number[] {
+  const it = items[index];
+  if (it?.kind !== "strength" || !it.group) return [index];
+  return items.flatMap((x, i) => (x.kind === "strength" && x.group === it.group ? [i] : []));
+}
+
+/**
+ * After checking set `setIndex` of item `index`: rest only once every
+ * exercise in its superset has that round done (or immediately if it's not
+ * in a superset).
+ */
+export function roundComplete(items: Session["items"], index: number, setIndex: number): boolean {
+  return groupIndexes(items, index).every((i) => {
+    const x = items[i];
+    if (x.kind !== "strength") return true;
+    return setIndex >= x.sets.length || x.sets[setIndex].done;
+  });
+}
+
+/** Letter label ("A", "B", …) for each superset group in a list of items. */
+export function groupLabels(items: { kind: string; group?: string }[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const it of items) {
+    if (!it.group || labels.has(it.group)) continue;
+    const count = items.filter((x) => x.group === it.group).length;
+    if (count > 1) labels.set(it.group, String.fromCharCode(65 + labels.size));
+  }
+  return labels;
+}
+
+export function updateSession(id: string, fn: (s: Session) => Session) {
+  update((db) => ({ ...db, sessions: db.sessions.map((s) => (s.id === id ? fn(s) : s)) }));
+}

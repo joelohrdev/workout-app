@@ -1,7 +1,7 @@
 // Pure sync logic (no network, no React) so it can be tested on its own.
 import type { DB } from "./types";
 
-export type Kind = "routine" | "session" | "cardio" | "exercise" | "settings";
+export type Kind = "routine" | "session" | "cardio" | "exercise" | "settings" | "plan" | "body";
 
 export type RemoteRow = {
   kind: Kind;
@@ -42,6 +42,8 @@ export function localRecords(db: DB): Map<string, { kind: Kind; id: string; data
   db.sessions.forEach((s) => add("session", s.id, s));
   db.cardio.forEach((c) => add("cardio", c.id, c));
   db.customExercises.forEach((e) => add("exercise", e.id, e));
+  db.intervalPlans.forEach((p) => add("plan", p.id, p));
+  db.body.forEach((b) => add("body", b.id, b));
   add("settings", "settings", db.settings);
   return out;
 }
@@ -106,6 +108,8 @@ export function applyPulled(
       if (row.kind === "cardio") next = { ...next, cardio: next.cardio.filter((x) => x.id !== row.id) };
       if (row.kind === "exercise")
         next = { ...next, customExercises: next.customExercises.filter((x) => x.id !== row.id) };
+      if (row.kind === "plan") next = { ...next, intervalPlans: next.intervalPlans.filter((x) => x.id !== row.id) };
+      if (row.kind === "body") next = { ...next, body: next.body.filter((x) => x.id !== row.id) };
       // filter() always returns a new array, so compare lengths to see if anything went
       if (localRecords(before).size !== localRecords(next).size) changed = true;
       else next = before;
@@ -130,6 +134,12 @@ export function applyPulled(
       };
     if (row.kind === "exercise") next = { ...next, customExercises: upsertById(next.customExercises, data) };
     if (row.kind === "settings") next = { ...next, settings: { ...next.settings, ...(data as object) } };
+    if (row.kind === "plan") next = { ...next, intervalPlans: upsertById(next.intervalPlans, data) };
+    if (row.kind === "body")
+      next = {
+        ...next,
+        body: upsertById(next.body, data as DB["body"][number]).sort((a, b) => a.date - b.date),
+      };
   }
 
   return { db: next, state: { lastPulledAt, synced }, changed };

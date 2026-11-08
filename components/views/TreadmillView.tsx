@@ -7,7 +7,8 @@ import { clearTimer, elapsedMs, pauseTimer } from "@/lib/timers";
 import { logCardio } from "@/lib/workout";
 import { Stopwatch } from "../Stopwatch";
 import { TrashIcon } from "../Icons";
-import { Button, Card, NumberInput, PageHeader, Sheet, Stat } from "../ui";
+import { IntervalPanel } from "../Intervals";
+import { Button, Card, NumberInput, PageHeader, Segmented, Sheet, Stat } from "../ui";
 
 const TIMER = "treadmill";
 
@@ -19,6 +20,8 @@ export function TreadmillView() {
   const hasTime = !!t && (t.running || t.accumulatedMs > 0);
 
   const [sheet, setSheet] = useState<null | "finish" | "manual">(null);
+  const [mode, setMode] = useState<"free" | "intervals">("free");
+  const showIntervals = mode === "intervals" || !!db.intervalRun;
   const [distance, setDistance] = useState<number | null>(null);
   const [incline, setIncline] = useState<number | null>(null);
   const [minutes, setMinutes] = useState<number | null>(null);
@@ -76,8 +79,24 @@ export function TreadmillView() {
 
   return (
     <>
-      <PageHeader eyebrow="Cardio" title="Treadmill" />
+      <PageHeader
+        eyebrow="Cardio"
+        title="Treadmill"
+        action={
+          <Segmented
+            value={showIntervals ? "intervals" : "free"}
+            onChange={(v) => !db.intervalRun && setMode(v)}
+            options={[
+              { value: "free", label: "Free run" },
+              { value: "intervals", label: "Intervals" },
+            ]}
+          />
+        }
+      />
 
+      {showIntervals ? (
+        <IntervalPanel />
+      ) : (
       <Card className="py-8">
         <Stopwatch timerId={TIMER} />
         <div className="mt-6 grid grid-cols-2 gap-3">
@@ -97,6 +116,7 @@ export function TreadmillView() {
           </button>
         )}
       </Card>
+      )}
 
       {hydrated && runs.length > 0 && (
         <>
@@ -129,6 +149,7 @@ export function TreadmillView() {
                     {round(speed(r.durationSec, r.distance), 1)} {speedUnit(r.unit)}
                     {r.incline ? ` · ${r.incline}% incline` : ""}
                     {r.sessionId ? " · workout" : ""}
+                    {r.planName ? ` · ${r.planName}` : ""}
                     {r.notes ? ` · ${r.notes}` : ""}
                   </p>
                 </div>
