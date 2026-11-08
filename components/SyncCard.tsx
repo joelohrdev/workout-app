@@ -110,8 +110,8 @@ export function SyncCard() {
           }}
         >
           <p className="text-sm text-muted">
-            We sent a code to <span className="text-text">{email}</span>. Enter it here, or tap the link in the
-            email if you&apos;re in a browser.
+            We emailed <span className="text-text">{email}</span>. Tap the link in that email, or enter the code
+            if it has one.
           </p>
           <input
             inputMode="numeric"
@@ -138,7 +138,7 @@ export function SyncCard() {
           </button>
         </form>
       )}
-      {msg && <p className="text-sm text-danger">{msg}</p>}
+      {(msg ?? s.linkError) && <p className="text-sm text-danger">{msg ?? s.linkError}</p>}
     </Card>
   );
 }

@@ -25,6 +25,8 @@ export type SyncStatus = {
   phase: "idle" | "syncing" | "error" | "offline";
   error: string | null;
   lastSyncedAt: number | null;
+  /** problem with a sign-in link the app was opened from */
+  linkError: string | null;
 };
 
 let status: SyncStatus = {
@@ -33,6 +35,7 @@ let status: SyncStatus = {
   phase: "idle",
   error: null,
   lastSyncedAt: null,
+  linkError: null,
 };
 const statusListeners = new Set<() => void>();
 function setStatus(patch: Partial<SyncStatus>) {
@@ -172,8 +175,30 @@ function scheduleSync(delay = 2000) {
 function onAuth(session: AuthSession | null) {
   const email = session?.user.email ?? null;
   const changedUser = email !== status.email;
-  setStatus({ email });
+  setStatus(email ? { email, linkError: null } : { email });
   if (email && changedUser) void syncNow();
+}
+
+/**
+ * Look at the URL the app was opened with. Supabase sign-in links land here
+ * with either tokens or an error in the address.
+ */
+function inspectAuthRedirect(): { hadTokens: boolean } {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const query = new URLSearchParams(location.search);
+  const get = (k: string) => hash.get(k) ?? query.get(k);
+  const code = get("error_code");
+  const desc = get("error_description");
+  if (code || desc) {
+    const friendly =
+      code === "otp_expired"
+        ? "That sign-in link has expired or was already used. Request a new one below."
+        : `Sign-in link didn't work: ${desc?.replace(/\+/g, " ") ?? code}`;
+    setStatus({ linkError: friendly });
+    // clear the error from the address bar
+    history.replaceState(history.state, "", location.pathname);
+  }
+  return { hadTokens: hash.has("access_token") || query.has("code") };
 }
 
 let started = false;
@@ -184,7 +209,14 @@ export function startSync() {
   const sb = getSupabase();
   if (!sb) return;
 
-  sb.auth.getSession().then(({ data }) => onAuth(data.session));
+  const { hadTokens } = inspectAuthRedirect();
+  sb.auth.getSession().then(({ data, error }) => {
+    onAuth(data.session);
+    if (hadTokens && !data.session)
+      setStatus({
+        linkError: `Sign-in link couldn't be used${error ? `: ${error.message}` : ""}. Request a new one below.`,
+      });
+  });
   sb.auth.onAuthStateChange((_event, session) => onAuth(session));
 
   onChange((fromSync) => {
