@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { formatTime } from "@/lib/format";
-import { sendCode, signOut, syncNow, useSyncStatus, verifyCode } from "@/lib/sync";
-import { Button, Card } from "./ui";
+import { signInWithPassword, signOut, signUpWithPassword, syncNow, useSyncStatus } from "@/lib/sync";
+import { Button, Card, Segmented } from "./ui";
 
 export function SyncCard() {
   const s = useSyncStatus();
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -70,74 +70,73 @@ export function SyncCard() {
     );
   }
 
+  const submit = () =>
+    run(async () => {
+      if (mode === "signin") return signInWithPassword(email.trim(), password);
+      const signedIn = await signUpWithPassword(email.trim(), password);
+      if (!signedIn)
+        setMsg(
+          "Account created, but Supabase wants the email confirmed first. Turn off “Confirm email” in Supabase (Authentication → Sign In / Providers → Email), then sign in.",
+        );
+    });
+
   return (
     <Card className="flex flex-col gap-3">
       <p className="font-semibold">Sync across devices</p>
+      <div>
+        <Segmented
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            setMsg(null);
+          }}
+          options={[
+            { value: "signin", label: "Sign in" },
+            { value: "signup", label: "Create account" },
+          ]}
+        />
+      </div>
       <p className="text-sm text-muted">
-        Sign in with your email to back up your workouts and keep your phone and computer in sync. The app keeps
-        working offline either way.
+        Back up your workouts and keep your phone and computer in sync. Use the same email and password on each
+        device. The app keeps working offline either way.
       </p>
-      {step === "email" ? (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run(async () => {
-              await sendCode(email.trim());
-              setStep("code");
-            });
-          }}
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <input
+          type="email"
+          name="email"
+          required
+          autoComplete={mode === "signin" ? "username" : "email"}
+          aria-label="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          className="h-11 rounded-xl bg-surface-2 px-3 outline-none focus:ring-2 focus:ring-accent"
+        />
+        <input
+          type="password"
+          name="password"
+          required
+          minLength={mode === "signup" ? 8 : undefined}
+          autoComplete={mode === "signin" ? "current-password" : "new-password"}
+          aria-label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder={mode === "signin" ? "Password" : "Choose a password (8+ characters)"}
+          className="h-11 rounded-xl bg-surface-2 px-3 outline-none focus:ring-2 focus:ring-accent"
+        />
+        <Button
+          type="submit"
+          disabled={busy || !email.includes("@") || password.length < (mode === "signup" ? 8 : 1)}
         >
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="h-11 rounded-xl bg-surface-2 px-3 outline-none focus:ring-2 focus:ring-accent"
-          />
-          <Button type="submit" disabled={busy || !email.includes("@")}>
-            {busy ? "Sending…" : "Email me a sign-in code"}
-          </Button>
-        </form>
-      ) : (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void run(() => verifyCode(email.trim(), code.trim()));
-          }}
-        >
-          <p className="text-sm text-muted">
-            We emailed <span className="text-text">{email}</span>. Tap the link in that email, or enter the code
-            if it has one.
-          </p>
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            placeholder="123456"
-            maxLength={10}
-            className="tabular h-12 rounded-xl bg-surface-2 px-3 text-center text-2xl tracking-[0.3em] outline-none focus:ring-2 focus:ring-accent"
-          />
-          <Button type="submit" disabled={busy || code.length < 6}>
-            {busy ? "Checking…" : "Sign in"}
-          </Button>
-          <button
-            type="button"
-            className="text-sm text-muted underline-offset-4 hover:underline"
-            onClick={() => {
-              setStep("email");
-              setCode("");
-              setMsg(null);
-            }}
-          >
-            Use a different email
-          </button>
-        </form>
-      )}
+          {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+        </Button>
+      </form>
       {(msg ?? s.linkError) && <p className="text-sm text-danger">{msg ?? s.linkError}</p>}
     </Card>
   );

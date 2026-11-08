@@ -239,21 +239,34 @@ export function startSync() {
   });
 }
 
-export async function sendCode(email: string) {
-  const sb = getSupabase();
-  if (!sb) throw new Error("Sync isn't configured");
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: true, emailRedirectTo: `${location.origin}/settings` },
-  });
-  if (error) throw error;
+function friendlyAuthError(message: string): string {
+  if (/invalid login credentials/i.test(message)) return "Wrong email or password.";
+  if (/already registered|already exists/i.test(message))
+    return "That email already has an account. Switch to Sign in.";
+  if (/email not confirmed/i.test(message))
+    return "This account's email isn't confirmed. In Supabase, turn off “Confirm email” (Authentication → Sign In / Providers → Email), then try again.";
+  if (/password should be at least|weak password/i.test(message)) return "Pick a longer password (at least 8 characters).";
+  if (/fetch|network/i.test(message)) return "Couldn't reach the server. Check your connection and try again.";
+  return message;
 }
 
-export async function verifyCode(email: string, token: string) {
+export async function signInWithPassword(email: string, password: string) {
   const sb = getSupabase();
   if (!sb) throw new Error("Sync isn't configured");
-  const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
-  if (error) throw error;
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(friendlyAuthError(error.message));
+}
+
+/** Create an account. Returns false when Supabase still requires email confirmation. */
+export async function signUpWithPassword(email: string, password: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) throw new Error("Sync isn't configured");
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if (error) throw new Error(friendlyAuthError(error.message));
+  // An existing confirmed email comes back with no identities instead of an error.
+  if (data.user && data.user.identities?.length === 0)
+    throw new Error("That email already has an account. Switch to Sign in.");
+  return !!data.session;
 }
 
 export async function signOut() {
