@@ -63,11 +63,22 @@ function subscribe(cb: () => void) {
   };
 }
 
+const changeListeners = new Set<(fromSync: boolean) => void>();
+
+/** Called after every local write; `fromSync` is true for changes pulled from the cloud. */
+export function onChange(cb: (fromSync: boolean) => void) {
+  changeListeners.add(cb);
+  return () => changeListeners.delete(cb);
+}
+
 /** Apply an immutable update to the database and notify subscribers. */
-export function update(fn: (db: DB) => DB) {
-  cache = fn(load());
+export function update(fn: (db: DB) => DB, opts?: { fromSync?: boolean }) {
+  const prev = load();
+  cache = fn(prev);
+  if (cache === prev) return;
   persist(cache);
   listeners.forEach((l) => l());
+  changeListeners.forEach((l) => l(!!opts?.fromSync));
 }
 
 export function replaceAll(db: DB) {

@@ -2,12 +2,16 @@
 
 import { useRef } from "react";
 import { getDB, replaceAll, resetAll, update, useDB } from "@/lib/store";
+import { useSyncStatus } from "@/lib/sync";
+import { SyncCard } from "../SyncCard";
 import type { DB } from "@/lib/types";
 import { Button, Card, PageHeader, Segmented, Stepper } from "../ui";
 
 export function SettingsView() {
   const db = useDB();
   const file = useRef<HTMLInputElement>(null);
+  const sync = useSyncStatus();
+  const cloud = sync.email ? " This also applies to your other synced devices." : "";
   const set = (patch: Partial<DB["settings"]>) =>
     update((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
 
@@ -24,7 +28,7 @@ export function SettingsView() {
     try {
       const data = JSON.parse(await f.text()) as DB;
       if (data.version !== 1 || !Array.isArray(data.sessions)) throw new Error("bad file");
-      if (confirm("Replace all current data with this backup?")) replaceAll(data);
+      if (confirm(`Replace all current data with this backup?${cloud}`)) replaceAll(data);
     } catch {
       alert("That file doesn't look like a Home Gym backup.");
     }
@@ -64,10 +68,14 @@ export function SettingsView() {
           <p className="text-xs text-muted">The rest timer starts automatically when you check off a set. Set it to 0 to turn it off. Changing units relabels numbers; it doesn’t convert past entries.</p>
         </Card>
 
+        <SyncCard />
+
         <Card className="flex flex-col gap-3">
           <p className="font-semibold">Your data</p>
           <p className="text-sm text-muted">
-            Everything is stored on this device only. Export a backup now and then, or to move to a new phone.
+            {sync.email
+              ? "Saved on this device and synced to your account. Export a JSON backup any time."
+              : "Everything is stored on this device only. Export a backup now and then, or to move to a new phone."}
           </p>
           <div className="grid grid-cols-2 gap-2">
             <Button variant="ghost" onClick={exportData}>Export JSON</Button>
@@ -86,7 +94,7 @@ export function SettingsView() {
           />
           <Button
             variant="danger"
-            onClick={() => confirm("Erase all workouts, runs and routines? This can't be undone.") && resetAll()}
+            onClick={() => confirm(`Erase all workouts, runs and routines? This can't be undone.${cloud}`) && resetAll()}
           >
             Erase everything
           </Button>

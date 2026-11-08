@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { startSync } from "@/lib/sync";
 
 export function ServiceWorker() {
   useEffect(() => {
+    startSync();
     if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
     navigator.serviceWorker
       .register("/sw.js", { scope: "/", updateViaCache: "none" })
