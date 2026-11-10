@@ -12,7 +12,7 @@ import { nextRoutine, sessionSetCount, sessionVolume, startSession } from "@/lib
 import { ChevronRight, DumbbellIcon, GearIcon, PlayIcon, RunIcon } from "../Icons";
 import { Button, Card, PageHeader, Stat } from "../ui";
 
-const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
+const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 export function TodayView() {
   const db = useDB();

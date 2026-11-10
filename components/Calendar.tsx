@@ -7,7 +7,7 @@ import { useDB } from "@/lib/store";
 import { DownIcon, UpIcon } from "./Icons";
 import { Card } from "./ui";
 
-const DOW = ["M", "T", "W", "T", "F", "S", "S"];
+const DOW = ["S", "M", "T", "W", "T", "F", "S"];
 
 /** Month grid showing which days you lifted and/or ran. */
 export function Calendar({ now }: { now: number }) {
@@ -16,7 +16,8 @@ export function Calendar({ now }: { now: number }) {
   const [offset, setOffset] = useState(0);
   const base = new Date(now);
   const month = new Date(base.getFullYear(), base.getMonth() + offset, 1);
-  const lead = (month.getDay() + 6) % 7;
+  // weeks start on Sunday
+  const lead = month.getDay();
   const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const today = startOfDay(now);
   let lifted = 0;

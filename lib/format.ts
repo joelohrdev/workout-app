@@ -49,12 +49,11 @@ export function formatTime(ts: number) {
   });
 }
 
-/** Monday 00:00 of the week containing ts */
+/** Sunday 00:00 of the week containing ts (weeks run Sunday–Saturday) */
 export function startOfWeek(ts: number): number {
   const d = new Date(ts);
   d.setHours(0, 0, 0, 0);
-  const day = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - day);
+  d.setDate(d.getDate() - d.getDay());
   return d.getTime();
 }
 
